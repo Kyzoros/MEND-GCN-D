@@ -32,3 +32,4 @@ extract*.txt
 .DS_Store
 Thumbs.db
 .ipynb_checkpoints/
+.idea/
