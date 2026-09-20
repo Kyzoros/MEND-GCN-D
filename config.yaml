@@ -1,0 +1,270 @@
+# ===========================================================================
+# Systems-Mapping 统一配置文件
+# ===========================================================================
+# 用法:
+#   1. 直接修改此文件中的参数值
+#   2. 通过环境变量覆盖: export SM_HDCTI_PATH=/path/to/hdcti
+#   3. 通过命令行参数覆盖: python main.py --disease AD --ga-max-generations 200
+# ===========================================================================
+
+# ---- 项目路径 (相对于 PROJECT_ROOT 的相对路径，可通过环境变量覆盖) ----
+paths:
+  project_root: null  # null = 自动检测 (os.path.dirname(__file__))
+  # 外部工具路径 (支持环境变量: SM_HDCTI_PATH, SM_DRUGAI_PATH, SM_TCMSP_DATA_DIR)
+  hdcti_path: "D:/Bio_information/HDCTI/HDCTI-main"
+  drugai_path: "D:/Bio_information/DrugAI/DrugAI-main"
+  tcmsp_data_dir: "D:/TCMSP/TCMSP-爬取代码"
+  # null = 自动查找, 优先 Drug_AI_best_view/best_model_rdkit.pkl (RDKit指纹重训版)
+  drugai_model_path: null
+
+# ---- 传播网络配置 ----
+network:
+  # 传播网络类型: "ppi" (蛋白质互作网络) | "kegg" (KEGG通路共成员网络)
+  # PPI 保留为对照对比板块，可通过 --network ppi 切换
+  type: "kegg"
+  # KEGG最小共享通路数(≥2剔除仅共享1条通路的弱连接):
+  #   min_shared=1 → ~310万边(过密, RWR过度平滑方向信号)
+  #   min_shared=2 → ~100万边(接近PPI密度, 保护DrugAI方向)
+  min_shared: 2
+
+# ---- 数据文件命名 ----
+files:
+  disease_profiles: "disease_profiles.csv"
+  disease_profiles_processed: "disease_profiles_processed.csv"
+  herb_ingredients: "herb_ingredients.csv"
+  herb_ingredients_processed: "herb_ingredients_processed.csv"
+  ingredient_targets: "ingredient_targets.csv"
+  ingredient_targets_processed: "ingredient_targets_processed.csv"
+  ingredient_targets_enhanced: "ingredient_targets_enhanced_recovered.csv"
+  ppi_network: "ppi_network.csv"
+  ppi_network_processed: "ppi_network_processed.csv"
+  herb_metadata: "herb_metadata.csv"
+  chembl_mechanisms: "chembl_mechanisms.csv"
+  # 金标准: 默认 "gold_standard.csv" (105条, 57正例 + 48负例)
+  #   "gold_standard_expanded.csv" = 扩充版 (192条, 96正例 + 96负例)
+  #     构成: curated 105 (= 原版) + TCMBank 39 正例 + 随机无关负例 48
+  #   TCMBank 39 条已人工抽查: RA 28 条为祛风湿通络药(防己/附子/羌活/威灵仙等),
+  #     T2D 10 条为传统治消渴药(地骨皮/黄精/黄连/天花粉等), 方向合理, 非噪声。
+  #   2026-08-29 切换为最终版:
+  #     gold_standard_final.csv = expanded(192条) + PAH 文献候选 16味 = 207条
+  #     PAH 正例 13 -> 29, 依据 T/CACM 1170-2019 指南 Ia 级方剂组成
+  #       与《中国药理学通报》2018;34(11) 综述, 独立于本方法(不构成循环论证)
+  #     含 evidence_grade 列 (A/B/C), 便于做敏感性分析(如只用 A+B 级重跑)
+  # 8 病版本 (293 行, AD/RA/T2D/HCC/CRC/ASTHMA/OA/PAH, 8 病全标签).
+  # 旧版 gold_standard_final.csv 只含 4 个核心病 (207 行), 会让 step5.6 评估漏掉
+  # 新加的 4 病(HCC/CRC/ASTHMA/OA); 见 2026-09-02 运行日志.
+  gold_standard: "processed/gold_standard_final_8d.csv"
+  # 缓存文件
+  signature_cache: "herb_signature_cache.npz"
+  signature_meta: "herb_signature_meta.json"
+
+# ---- HDmap-S 参数 ----
+hdmap_s:
+  top_bottom_k: 500          # 调优: 250→500, 扩大匹配空间, 提升 TMS 范围 (避免 n_disease/K 失衡)
+  permutation_n: 1000        # 置换检验次数 (调优: 100→1000, 提高P值精度至0.001)
+  logfc_threshold: 0.05      # 最低 |logFC| 预过滤 (很宽松, 仅剔除几乎无变化的基因)
+  pvalue_threshold: 0.05     # P值过滤: 只保留P<0.05的显著差异基因，0=不过滤
+  # 疾病基因集选取方式: 按 P 值取每病 top-K 最显著 DEG (各病规模一致)
+  #   背景(2026-08-29): 旧绝对阈值(|logFC|>0.05,P<0.05)下各病 DEG 严重失衡——
+  #     PAH 9674 个(占KEGG网络46%, 近乎全基因组) 而 AD 3684 / RA 5813 / T2D 1730。
+  #     若收紧到 |logFC|>1, AD 只剩 3 个(AD数据差异表达信号极弱), 方法直接失效。
+  #   top-K 让每病疾病模块规模一致, 保证跨病可比。
+  #   实测敏感性 (FULL协议, 扩充金标准): K=200→0.542 / 500→0.618 / 1000→0.613
+  #     / 1200→0.622 / 1500→0.622 / 2000→0.622, 即 K>=1200 为稳定平台(非尖峰)。
+  #   取 1500 (平台中部, 保守)。
+  disease_deg_top_k: 1500    # 0 或负 = 停用 top-K, 退回 logfc/pvalue 阈值模式
+  # TMS计算方法: "ndcg" (原始,Top500硬阈值) | "weighted" (加权cosine,全基因参与,疾病区分力强)
+  #              | "dual" (双通道: 同时输出逆转/嵌网两路, 按疾病机制先验合并)
+  #              | "enrichment" (2026-08-22 新方法: 草药靶点 vs 疾病DEG 的 Fisher 富集打分,
+  #                 替代扩散签名余弦, 直接捕捉网络医学"靶点富集于疾病模块=治疗"信号, 见 B_probe)
+  # 默认 enrichment (论文 proposed method); weighted/dual/ndcg 保留作 baseline 对比
+  tms_method: "enrichment"
+  # 双通道TMS的疾病机制先验: 决定每个疾病用哪个通道作为"治疗"方向
+  #   antagonist = 逆转型 (负cos=治疗, 即"逆转疾病签名=治疗", CMap/LINCS 领域范式)
+  #   engagement = 嵌网型 (正cos=治疗, 即"同向/补益=治疗")
+  # 文献/生物学先验(2026-08-22 修订): 4 病均为病理性激活态, 治疗=逆转签名 ->
+  #   AD(神经炎症/淀粉样变)、PAH(血管重塑)、RA(滑膜炎症)、T2D(胰岛素抵抗) 均取 antagonist。
+  #   (注: 内部金标准数据曾提示 RA 偏好 engagement, 与生物学冲突, 视为金标准/签名噪声,
+  #    方向以独立文献先验为准, 不在测试集上调向。)
+  # 缺省疾病按 antagonist 处理
+  # 数据驱动校准 (direction_calibration.py, cv=5-fold 留出, 避免循环论证)
+  #
+  # --- 2026-08-30 实证复核 (取代 8-29 旧标签) ---
+  # 判定依据 (verify_direction_empirically.py):
+  #   金标准 = 管线实际使用的 data/gold_standard_final.csv (207条, 112正/95负)
+  #   !! data/gold_standard.csv 是旧版 105 条, 与管线不一致, 不可用于判向 !!
+  #
+  #   取 dual_combined 矩阵(约定"越高=越治疗")与该金标准算 labeled AUROC:
+  #     AD   高分=治疗 0.5625 | 低分=治疗 0.4375 -> antagonist
+  #     PAH  高分=治疗 0.8302 | 低分=治疗 0.1698 -> antagonist (信号最强)
+  #     RA   高分=治疗 0.4846 | 低分=治疗 0.5154 -> antagonist (但见下方备注)
+  #     T2D  高分=治疗 0.5714 | 低分=治疗 0.4286 -> antagonist
+  #   均值 0.6122; 四病的正确方向均为 antagonist
+  #
+  #   RA 备注: 两方向 AUROC 均在 0.48~0.52, 基本无方向信号; 取 antagonist 仅因略优,
+  #            不应据此宣称 RA 的机制方向已被确定。
+  #
+  # 注: 8-29 旧标签来自 direction_calibration.py 的 learn_direction, 该函数有两个 bug
+  #     (已于 2026-08-30 修复):
+  #     (1) `direction = antagonist if rev_mean > eng_mean else engagement` ——
+  #         因 rev=-cos/eng=+cos 使 rev_mean 恒等于 -eng_mean, 该判据等价于
+  #         "只看正例 cos 的正负号", 并未比较正例 vs 负例 -> 方向学错;
+  #     (2) `gold, _, _, _ = load_gold_standard_mechanism(...)` 把 labeled 负例丢了。
+  #     现改用"正例 vs 负例 AUROC"判据; 修复后该脚本也给出四病皆 antagonist, 与上表一致。
+  #
+  # combine_dual_channels 语义 (hdmap_s.py):
+  #   antagonist -> df_reverse (-cos, 负cos者得分高 = 低分好)
+  #   engagement -> df_engage  (+cos, 正cos者得分高 = 高分好)
+  # 注意: enrichment 模式下方向不影响主结果(直接 -log10(Fisher p), 恒正),
+  #       但在 dual 模式与 GA 复方打分中会用到, 需保持配置一致。
+  disease_tms_mechanism:
+    RA: antagonist
+    AD: antagonist
+    PAH: antagonist
+    T2D: antagonist
+    # --- 2026-09-02 新增 4 病 (HCC/CRC/ASTHMA/OA) ---
+    # 此前这 4 病未登记, 导致 main.py 的 ga_mechanism_map.get(_d, "engagement")
+    # 回退到 engagement, 与上方"缺省疾病按 antagonist 处理"的文档约定相矛盾,
+    # 也违背 8-30 实证复核 (verify_direction_empirically.py, 四病皆 antagonist)。
+    # 4 病均为病理性激活态 (HCC/CRC 肿瘤增殖, ASTHMA/OA 慢性炎症), 治疗=逆转疾病签名。
+    HCC: antagonist
+    CRC: antagonist
+    ASTHMA: antagonist
+    OA: antagonist
+
+# ---- 扩散参数 ----
+diffusion:
+  method: "rwr"              # "thermal" (两阶段热扩散) 或 "rwr" (重启随机游走)
+  thermal_alpha: 1.0         # 热扩散系数
+  rwr_restart_prob: 0.7      # 调优: 0.85→0.7, 让信号传到 2-3 跳邻居, 扩大 TMS 范围
+  rwr_max_iter: 100          # RWR 最大迭代次数
+  rwr_tol: 1.0e-6            # RWR 收敛阈值
+
+# ---- PPI 网络参数 ----
+ppi:
+  n_proteins: 13460
+  n_interactions: 141296
+  multi_source: true         # 多源PPI融合开关 (true=STRING等101个源, false=仅ppi_network.csv)
+  fusion_strategy: "evidence_count"  # evidence_count / confidence / union
+  min_sources: 1
+
+# ---- DrugAI 配置 ----
+drugai:
+  use: true
+  confidence_threshold: 0.95   # 高置信度: 信任DrugAI生化预测, 包括有害方向交给TMS自然惩罚
+  disease_validate: false        # 关闭: 不应剔除有害预测, 应由TMS自然惩罚
+  device: "cuda"    # 有 CUDA 时大幅加速逐对推理(约7.7万对); 无GPU会自动回退CPU
+  use_gpu: true
+
+# ---- 实验验证机制覆盖 (真值优先于 DrugAI 预测) ----
+# 汇总 DrugBank(11229条)+ChEMBL 的实验"激活/抑制"结论, 命中即覆盖模型预测。
+# 覆盖率实测: skeleton=0.078% / exact=0.020% (草药成分多为天然产物, 与已批准药物重叠极小)
+#   skeleton: InChIKey骨架匹配, 忽略立体化学与盐型, 覆盖更高
+#   exact   : canonical SMILES 完全一致, 最严格
+experimental_mechanisms:
+  enable: true
+  match_mode: "skeleton"
+
+# ---- 边置信度加权 (解决"覆盖率提高反而降 AUROC") ----
+# 签名权重 = action_type * confidence。让低质量边自动降权:
+#   ood_completion_penalty        : OOD补全(PubChem)靶标方向惩罚系数 (SMILES为OOD天然产物, 方向不可信)
+#   kegg_direction_reliability    : KEGG通路网络下生化方向可靠性折扣 (通路共成员关系使方向噪声更大)
+#   ppi_direction_reliability     : PPI物理网络下方向可靠性折扣
+direction_weighting:
+  enable: true
+  ood_completion_penalty: 0.25
+  kegg_direction_reliability: 0.5
+  ppi_direction_reliability: 0.9
+  presence_floor: 0.2            # 方向未知(如中性化OOD补全)时保留的靶标存在性信号强度
+
+# ---- HDCTI 配置 ----
+hdcti:
+  use: true
+  confidence_threshold: 0.85   # 回滚: 0.90→0.85, 原始值(注意:GCN原始分数>40,此阈值无效)
+  top_k: 8
+  # GCN预测全局z-score过滤: 将所有成分预测分数z-score标准化后,仅保留>=阈值的强信号
+  #   理论依据: 各成分GCN分数在同一张图上产生,绝对可比; per-ingredient top_k让弱成分
+  #   也硬塞8个噪声靶标. z-score过滤基于证据强度分布自动淘汰~84%弱预测(z>=1→约16%保留)
+  #   None=关闭(保留所有top_k预测), 建议1.0(强信号) 或 0.5(中等信号)
+  zscore_threshold: 1.0
+  use_tcmsp_targets: true
+  tcmsp_svm_threshold: 0.7
+  tcmsp_rf_threshold: 0.7
+  use_gcn_prediction: true
+  # Path1相似度方法: "tanimoto"(默认,分子指纹) | "jaccard"(原始,共享靶标)
+  similarity_method: "tanimoto"
+  # KEGG通路2跳邻域过滤: 只保留与疾病基因≤2跳可达的预测靶标
+  kegg_filter: false   # 测试: true→false, 定位KEGG过滤影响
+
+# ---- GA 遗传算法参数 ----
+ga:
+  pop_size: 2000             # 调优: 500→2000, 扩大搜索覆盖 (与 max_combo_size=6 配合)
+  n_herbs: 502
+  max_generations: 500       # 调优: 200→500, 给多味药组合充分探索时间
+  n_top: 50                  # 返回 Top-K 组合数
+  max_combo_size: 6          # 调优: 4→6, 覆盖中医复方 4~6 味主流规模
+  crossover_rate: 0.8
+  mutation_rate: 0.15
+  elite_size: 12
+  size_penalty_lambda: 0.001 # 调优: 0.01→0.001, 不再压倒真实 TMS 信号 (raw TMS 范围约 0.03)
+  # Hall of Fame
+  hof_size: 50
+  # 双通道 GA: 按疾病机制先验 (antagonist/engagement) 选择复方 TMS 方向
+  dual_mechanism: true
+  # 是否对全部疾病运行 GA (逐病生效双通道机制); false 则只跑目标疾病 (更快)
+  run_all_diseases: true
+  # 种群重启
+  restart_stagnation: 15     # 调优: 8→15, 给多味药更长发现窗口
+  restart_fraction: 0.4      # 调优: 0.5→0.4, 保留更多精英
+  max_restarts: 8            # 调优: 5→8, 允许多点重启跳出局部最优
+  # 早停
+  early_stop_generations: 50        # 调优: 20→50, 避免过早收敛到 1 味药
+  dynamic_early_stop_generations: 20
+  min_improvement_rate: 0.0005      # 调优: 0.001→0.0005, 容忍更小改善
+  early_stop_window: 20
+  # 多样性
+  diversity_threshold: 0.85  # 调优: 0.55→0.85, 仅排除几乎完全冗余的草药对
+  # 数值稳定
+  fitness_epsilon: 1.0e-10
+  norm_epsilon: 1.0e-12
+
+# ---- 时间感知 ----
+temporal:
+  enabled: false
+  method: "recent"           # peak / recent / average
+  decay_factor: 0.7
+  time_col: "time_point"
+  top_n: 50
+
+# ---- 跨疾病迁移学习 ----
+transfer:
+  enabled: false
+  lambda: 0.3                # 迁移强度
+  min_similarity: 0.05
+  use_ppi_propagation: true
+
+# ---- 置换检验 ----
+permutation:
+  n: 100
+  early_stop_extreme: 20
+
+# ---- 评估参数 ----
+evaluation:
+  hpg_edge_threshold: 1.0e-6
+  hpg_top_k: 500
+  enrichment_background_genes: 20000
+  pubmed_total_articles: 22188039
+  jaccard_gene_set_sizes: [200, 400, 600, 800, 1000]
+
+# ---- 输出配置 ----
+output:
+  include_timestamp: true          # 输出目录是否包含时间戳
+  timestamp_format: "%Y%m%d_%H%M%S"
+  # 子目录结构
+  dirs:
+    figures: "figures"
+    results: "results"
+    reports: "reports"             # 评估报告
+    ablation: "ablation"           # 消融实验结果
+  # 日志
+  log_file: "run.log"

@@ -1,0 +1,34 @@
+# ─── Python 字节码 / 缓存 ───
+__pycache__/
+*.py[cod]
+*.egg-info/
+build/
+dist/
+.eggs/
+
+# ─── 虚拟环境 ───
+venv/
+.venv/
+env/
+
+# ─── 大型数据与非源码产物（不上传 GitHub）───
+data/
+geo_data/
+output/
+Drug_AI_best_view/
+PAH_fuhe_results/
+
+# ─── 旧管线遗留的孤儿图片（其生成脚本已删除）───
+figures/*.png
+
+# ─── 日志与临时文件 ───
+*.log
+*.err
+*.bak
+_review_dump.txt
+extract*.txt
+
+# ─── 系统 / 编辑器 ───
+.DS_Store
+Thumbs.db
+.ipynb_checkpoints/
