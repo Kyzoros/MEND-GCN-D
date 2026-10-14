@@ -291,7 +291,7 @@ PRESENCE_FLOOR = _nested_get(_cfg, "direction_weighting", "presence_floor", defa
 # ===========================================================================
 HDCTI_USE = _env_override("SM_HDCTI_USE",
     _nested_get(_cfg, "hdcti", "use", default=True))
-HDCTI_CONFIDENCE_THRESHOLD = _nested_get(_cfg, "hdcti", "confidence_threshold", default=0.85)  # 调优: 0.7→0.85, 消融显示HDCTI噪声稀释TMS信号
+HDCTI_CONFIDENCE_THRESHOLD = _nested_get(_cfg, "hdcti", "confidence_threshold", default=0.85)  # 调优: 0.7→0.85, 早期宽松参数下HDCTI噪声稀释TMS信号; 收紧后与DrugAI协同为正向贡献
 HDCTI_TOP_K = _nested_get(_cfg, "hdcti", "top_k", default=8)  # 调优: 15→8, 减少每成分的噪声靶标, 保留最可靠的
 HDCTI_USE_TCMSP_TARGETS = _nested_get(_cfg, "hdcti", "use_tcmsp_targets", default=True)
 HDCTI_TCMSP_SVM_THRESHOLD = _nested_get(_cfg, "hdcti", "tcmsp_svm_threshold", default=0.7)
