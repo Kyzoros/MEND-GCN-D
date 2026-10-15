@@ -1,4 +1,4 @@
-﻿# ─── Python 字节码 / 缓存 ───
+﻿# ─── Python bytecode / caches ───
 __pycache__/
 *.py[cod]
 *.egg-info/
@@ -6,29 +6,29 @@ build/
 dist/
 .eggs/
 
-# ─── 虚拟环境 ───
+# ─── Virtual environments ───
 venv/
 .venv/
 env/
 
-# ─── 大型数据与非源码产物（不上传 GitHub）───
+# ─── Large data and non-source artefacts ───
 data/
 geo_data/
 output/
 Drug_AI_best_view/
 PAH_fuhe_results/
 
-# ─── 旧管线遗留的孤儿图片（其生成脚本已删除）───
+# ─── Legacy figures whose generating scripts are gone ───
 figures/*.png
 
-# ─── 日志与临时文件 ───
+# ─── Logs and temporary files ───
 *.log
 *.err
 *.bak
 _review_dump.txt
 extract*.txt
 
-# ─── 系统 / 编辑器 ───
+# ─── OS / editor ───
 .DS_Store
 Thumbs.db
 .ipynb_checkpoints/
@@ -36,7 +36,7 @@ Thumbs.db
 _for_agent/
 _for_doubao/
 
-# ─── 数据获取 / 数据预处理脚本：本地保留，不上传 ───
+# ─── Data acquisition and preprocessing scripts (not part of the model release) ───
 download_public_db.py
 parallel_download_npass.py
 parallel_download_npass_curl.py
@@ -57,7 +57,7 @@ regenerate_enrichment_scores.py
 recompute_enrichment_8diseases.py
 analyze_drugai_calibration.py
 
-# ─── 论文构建 / 图表生成脚本：本地保留，不上传 ───
+# ─── Manuscript and figure-generation scripts ───
 build_manuscript_zh.py
 build_manuscript_zh.js
 equations_omml.py
@@ -68,7 +68,10 @@ fig1_*.svg
 fig1_*.jsx
 run_make_fig*.py
 
-# ─── 内部工作日志：不上传 ───
+# ─── Internal working notes ───
 STATUS.md
 VERIFICATION_REPORT.md
 CLEANUP_LOG_*.md
+
+# ─── Local scratch archive ───
+_local_archive/
