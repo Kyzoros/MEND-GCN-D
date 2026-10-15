@@ -12,13 +12,13 @@
   2. 两层 GCN 对对称归一化邻接矩阵做消息传递，得到各节点嵌入（含节点类型与基因差异表达等特征）；
   3. DistMult 解码器对每个 `(草药, 疾病)` 对打分：`s = Σ (z_h ⊙ w ⊙ z_d)`，`w` 为可学习对角权重；
   4. 纯二元交叉熵（BCE）损失 + 按疾病负采样训练。
-- **代码位置**：模型定义在 [run_fair_comparison.py](run_fair_comparison.py) 的 `GCN` 类与 `train_gcn_model()` / `train_gcn()` 中，其余协议脚本均导入复用，全库统一。
+- **代码位置**：模型定义在 [run_fair_comparison.py](mendgcn/run_fair_comparison.py) 的 `GCN` 类与 `train_gcn_model()` / `train_gcn()` 中，其余协议脚本均导入复用，全库统一。
 
 ---
 
 ## 方法与框架（与代码一一对应）
 
-### 1. 异构图构建 — `build_graph()`（[run_fair_comparison.py](run_fair_comparison.py)）
+### 1. 异构图构建 — `build_graph()`（[run_fair_comparison.py](mendgcn/run_fair_comparison.py)）
 
 | 项目 | 内容 |
 |------|------|
@@ -62,12 +62,12 @@ z  = Wout · (A_sym @ h1)               # 第 2 层，64 维 → 输出 32 维
 
 | 协议 | 说明 | 脚本 | 输出表 |
 |------|------|------|--------|
-| **P1 · 5 折 transductive** | 306 个正例对划 5 折轮流留出，汇总后报 pair 级 AUROC / AUPRC / MRR / Hits@10 / Hits@20，bootstrap 95% CI | [run_cv_final.py](run_cv_final.py) | `Table_cv_clean.csv` |
-| **P2 · LODO（留一病）** | 依次留出 1 个病：训练图彻底删除该病节点及其基因连边，冻结权重在全图推理（真 inductive） | [run_gnn_lodo_coldstart.py](run_gnn_lodo_coldstart.py) `--stage lodo` | `Table_lodo.csv` (+`_per_disease`) |
-| **P3 · 冷启动草药** | 5 折各留出 1/5 草药节点及其成分连边，靠成分→基因→病传播给全新草药打分 | [run_gnn_lodo_coldstart.py](run_gnn_lodo_coldstart.py) `--stage coldstart` | `Table_coldstart.csv` (+`_per_fold`) |
-| **公平对比主表** | 留出 1/5 正例对；Fisher / 网络邻近 / 靶点数量 / GCN-D 四方法同数据同评估 | [run_fair_comparison.py](run_fair_comparison.py) | `Table_fair_comparison.csv` |
-| **定稿公平基线 + 干净留出 + 消融** | 6 方法（含 MLP 无图对照）干净对级评估、epoch 扫描、结构消融 | [run_fair_final.py](run_fair_final.py) | `Table_fair_final.csv`、`Table_holdout_clean.csv`、`Table_epoch_overfit.csv`、`Table_gnn_ablation2.csv` |
-| **8 病扩展评估** | 新 4 病 curated AUC 与独立验证合并 | [run_8disease_curated_auc.py](run_8disease_curated_auc.py)、[run_8disease_master_table.py](run_8disease_master_table.py) | `Table_8disease_curated_auc.csv`、`Table_8disease_master.csv` |
+| **P1 · 5 折 transductive** | 306 个正例对划 5 折轮流留出，汇总后报 pair 级 AUROC / AUPRC / MRR / Hits@10 / Hits@20，bootstrap 95% CI | [run_cv_final.py](mendgcn/run_cv_final.py) | `Table_cv_clean.csv` |
+| **P2 · LODO（留一病）** | 依次留出 1 个病：训练图彻底删除该病节点及其基因连边，冻结权重在全图推理（真 inductive） | [run_gnn_lodo_coldstart.py](experiments/run_gnn_lodo_coldstart.py) `--stage lodo` | `Table_lodo.csv` (+`_per_disease`) |
+| **P3 · 冷启动草药** | 5 折各留出 1/5 草药节点及其成分连边，靠成分→基因→病传播给全新草药打分 | [run_gnn_lodo_coldstart.py](experiments/run_gnn_lodo_coldstart.py) `--stage coldstart` | `Table_coldstart.csv` (+`_per_fold`) |
+| **公平对比主表** | 留出 1/5 正例对；Fisher / 网络邻近 / 靶点数量 / GCN-D 四方法同数据同评估 | [run_fair_comparison.py](mendgcn/run_fair_comparison.py) | `Table_fair_comparison.csv` |
+| **定稿公平基线 + 干净留出 + 消融** | 6 方法（含 MLP 无图对照）干净对级评估、epoch 扫描、结构消融 | [run_fair_final.py](mendgcn/run_fair_final.py) | `Table_fair_final.csv`、`Table_holdout_clean.csv`、`Table_epoch_overfit.csv`、`Table_gnn_ablation2.csv` |
+| **8 病扩展评估** | 新 4 病 curated AUC 与独立验证合并 | [run_8disease_curated_auc.py](experiments/run_8disease_curated_auc.py)、[run_8disease_master_table.py](experiments/run_8disease_master_table.py) | `Table_8disease_curated_auc.csv`、`Table_8disease_master.csv` |
 
 ## 金标准与疾病
 
@@ -84,13 +84,13 @@ z  = Wout · (A_sym @ h1)               # 第 2 层，64 维 → 输出 32 维
 
 | 基线 | 思想 | 代码 |
 |------|------|------|
-| Fisher 富集 (D-TMS) | 草药靶点集与疾病基因集的富集显著性 | `score_fisher()`（[run_fair_comparison.py](run_fair_comparison.py)） |
+| Fisher 富集 (D-TMS) | 草药靶点集与疾病基因集的富集显著性 | `score_fisher()`（[run_fair_comparison.py](mendgcn/run_fair_comparison.py)） |
 | 网络邻近度 (Barabasi) | KEGG 网络上疾病基因到草药靶点的度校正 z-score | `score_proximity()`（同上） |
 | 靶点数量 | 平凡基线：只数靶点数、无疾病特异性 | `score_targetcount()`（同上） |
-| RWR 扩散 | 以疾病为种子在异构图上重启随机游走，稳态概率为分 | `score_rwr()`（[run_fair_final.py](run_fair_final.py)） |
-| MLP 无图传播 | `n_layers=1` 的 GCN-D 对照，剥离图传播贡献 | [run_fair_final.py](run_fair_final.py) |
+| RWR 扩散 | 以疾病为种子在异构图上重启随机游走，稳态概率为分 | `score_rwr()`（[run_fair_final.py](mendgcn/run_fair_final.py)） |
+| MLP 无图传播 | `n_layers=1` 的 GCN-D 对照，剥离图传播贡献 | [run_fair_final.py](mendgcn/run_fair_final.py) |
 
-另保留完整的**无监督系统映射管线** [main.py](main.py)：RWR 草药扰动签名（`perturbation_signature.py`）→ HDmap-S TMS 得分与置换检验（`hdmap_s.py`）→ HDmap-M 遗传算法组合搜索（`hdmap_m.py`）→ H–PG 网络评估（`evaluation.py` / `evaluation_metrics.py`），作为传统方法的对照实现。
+另保留完整的**无监督系统映射管线** [main.py](baselines/main.py)：RWR 草药扰动签名（`perturbation_signature.py`）→ HDmap-S TMS 得分与置换检验（`hdmap_s.py`）→ HDmap-M 遗传算法组合搜索（`hdmap_m.py`）→ H–PG 网络评估（`evaluation.py` / `evaluation_metrics.py`），作为传统方法的对照实现。
 
 ---
 
@@ -113,22 +113,24 @@ pip install -r requirements.txt
 
 核心依赖：numpy / pandas / scipy / scikit-learn / matplotlib / pyyaml / requests；深度模型需 `torch`（可选：joblib、numba、gseapy、seaborn，见 [requirements.txt](requirements.txt)）。
 
+在仓库根目录执行（脚本内部会自动把仓库根加入 `sys.path` 并据此解析数据/输出路径）：
+
 ```bash
 # 公平对比主表（4 方法 × 8 病，冒烟参数）
-python run_fair_comparison.py
+python mendgcn/run_fair_comparison.py
 
 # P1：5 折 transductive 对级评估（全量）
-python run_cv_final.py --epochs 3000
+python mendgcn/run_cv_final.py --epochs 3000
 
 # P2 / P3：留一病 与 冷启动草药（全量）
-python run_gnn_lodo_coldstart.py --stage lodo --epochs 3000
-python run_gnn_lodo_coldstart.py --stage coldstart --epochs 3000
+python experiments/run_gnn_lodo_coldstart.py --stage lodo --epochs 3000
+python experiments/run_gnn_lodo_coldstart.py --stage coldstart --epochs 3000
 
 # 定稿公平基线 + 干净留出 + 消融（4 张论文表）
-python run_fair_final.py --epochs 3000 --seeds 0 1 2
+python mendgcn/run_fair_final.py --epochs 3000 --seeds 0 1 2
 
 # 无监督系统映射管线（对照方法）
-python main.py --disease PAH
+python baselines/main.py --disease PAH
 ```
 
 默认超参（所有 GCN-D 协议一致）：`lr=1e-2, hid=64, out=32, k_neg=5, n_layers=2`。
@@ -138,57 +140,63 @@ python main.py --disease PAH
 ## 仓库结构
 
 ```
-├── run_fair_comparison.py       # ★ GCN 类 / train_gcn / 图构建 / 公平对比主表
-├── run_cv_final.py              # ★ P1：5 折 transductive 对级评估
-├── run_gnn_lodo_coldstart.py    # ★ P2 LODO / P3 冷启动（inductive）
-├── run_fair_final.py            # ★ 定稿公平基线 + 干净留出 + 消融（4 表）
-├── config.py / config.yaml      # 统一配置（数据路径、图/评估/增强参数）
-├── data_loader.py               # 数据加载 + HDCTI/DrugAI 增强集成
-├── kegg_network.py              # KEGG 基因网络邻接与缓存
+systems_mapping/
+├── README.md / ARCHITECTURE.md   # 项目说明 / 架构文档
+├── requirements.txt              # 依赖
+├── config.py / config.yaml       # 统一配置（数据路径、图/评估/增强参数）—— 留在根目录
+├── .gitignore
 │
-├── run_gnn_final.py             # GCN 定稿 epoch 扫描 / 多种子
-├── run_gnn_ablation.py          # GNN 结构消融
-├── run_ablation.py / run_ablation_enrichment.py   # 组件与富集消融
-├── run_baseline_comparison.py / run_baseline_holdout.py  # 基线与留出对比
-├── run_8disease_curated_auc.py / run_8disease_master_table.py /
-├── run_8disease_top50.py / run_8disease_top50_summary.py  # 8 病扩展评估
-├── run_D5_correct_compare.py / run_D6_pubmed_validation.py /
-├── run_D7_ablation_permutation.py / run_D8_final_comparison.py  # 论文 D 组实验
-├── run_P0_independent_validation.py / run_P0a_target_tightening.py /
-├── run_P0b_clean_gold.py / run_positive_control.py  # P0 独立验证与阳性对照
-├── run_gcn_case_predict.py / run_gcn_d_scores.py / interpret_gcn_d.py  # GCN-D 案例与解释
-├── run_herb_external_validation.py / run_tms_independent_validation.py  # 外部验证
-├── run_coldstart.py / run_k_stratified_eval.py / run_conf_threshold_lodo.py  # 冷启动/分层/阈值
-├── run_multidisease_date.py / run_multigold_confound_check.py /
-├── run_confound_check.py / diagnose_target_count_confound.py  # 混杂与日期检验
-├── run_pah_analysis.py / run_tms_size_correction.py  # PAH 分析 / TMS 尺寸校正
+├── mendgcn/                      # ★ 核心库：配置/数据/图构建/GCN-D 模型/评估/适配器
+│   ├── run_fair_comparison.py    # ★ GCN 类 / build_graph / train_gcn / 公平对比主表
+│   ├── run_cv_final.py           # ★ P1：5 折 transductive 对级评估
+│   ├── run_fair_final.py         # ★ 定稿公平基线 + 干净留出 + 消融（4 表）
+│   ├── run_gnn_final.py          #   定稿 epoch 扫描 / 多种子
+│   ├── run_gnn_ablation.py       #   GNN 结构消融
+│   ├── data_loader.py            #   数据加载 + HDCTI/DrugAI 增强集成
+│   ├── kegg_network.py           #   KEGG 基因网络邻接与缓存
+│   ├── kegg_pathway_filter.py    #   KEGG 通路过滤（data_loader 依赖）
+│   ├── hdmap_s.py / hdmap_m.py   #   无监督基线：TMS 打分 / 遗传算法组合搜索
+│   ├── perturbation_signature.py #   RWR / 热扩散扰动签名（基线组件）
+│   ├── evaluation.py / evaluation_metrics.py  # 无监督评估（H-PG 网络等）
+│   ├── tms_network_proximity.py  #   网络邻近度（基线）
+│   ├── hdcti_adapter.py / drugai_adapter.py   # 靶标扩展 / 方向预测适配器
+│   ├── gcn_target_expansion.py   #   二部图 GCN 靶标扩展对比实验
+│   └── experimental_mechanisms.py / temporal_signature.py / transfer_learning.py
 │
-├── main.py                      # 无监督管线编排（扰动签名→HDmap-S→HDmap-M→评估）
-├── perturbation_signature.py    # RWR / 热扩散扰动签名（基线组件）
-├── hdmap_s.py                   # TMS 得分 + 置换检验（基线）
-├── hdmap_m.py                   # 遗传算法组合搜索（基线）
-├── tms_network_proximity.py     # 网络邻近度（基线）
-├── generate_random_baseline.py / generate_cosine_baseline.py /
-├── generate_netprox_baseline.py / generate_dual_outputs.py  # 基线生成
-├── evaluate_dual_channel.py / evaluate_gold_standard.py     # 基线评估
+├── experiments/                  # 实验入口（论文表 / 扩展 / 验证）
+│   ├── run_gnn_lodo_coldstart.py # ★ P2 LODO / P3 冷启动（inductive）
+│   ├── run_8disease_*.py         #   8 病扩展评估（curated AUC / 主表 / top50）
+│   ├── run_D5_* / run_D6_* / run_D7_* / run_D8_*.py   # 论文 D 组实验
+│   ├── run_P0_* / run_P0a_* / run_P0b_* / run_positive_control.py  # P0 独立验证与阳性对照
+│   ├── run_ablation.py / run_ablation_enrichment.py   # 组件与富集消融
+│   ├── run_baseline_comparison.py / run_baseline_holdout.py  # 基线与留出对比
+│   ├── run_gcn_case_predict.py / run_gcn_d_scores.py / interpret_gcn_d.py  # GCN-D 案例、打分与解释
+│   ├── run_herb_external_validation.py / run_tms_independent_validation.py  # 外部验证
+│   ├── compare_diffusion_rwr_vs_thermal.py / compare_ppi_vs_kegg.py / compare_target_expansion.py
+│   └── run_coldstart.py / run_k_stratified_eval.py / run_conf_threshold_lodo.py /
+│       run_final_tables.py / run_multidisease_date.py / run_pah_analysis.py /
+│       run_tms_size_correction.py / run_B_probe.py / run_C_goldstandard_check.py /
+│       method_comparison.py / permutation_check.py
 │
-├── hdcti_adapter.py             # TCMSP + GCN 靶标扩展适配器
-├── drugai_adapter.py            # DrugAI 靶标方向预测适配器
-├── gcn_target_expansion.py      # 二部图 GCN 靶标扩展对比实验
-├── compare_diffusion_rwr_vs_thermal.py / compare_ppi_vs_kegg.py /
-├── compare_target_expansion.py  # 组件对比实验
+├── baselines/                    # 无监督系统映射管线（对照方法）
+│   ├── main.py                   # ★ 管线编排（扰动签名→HDmap-S→HDmap-M→评估）
+│   ├── generate_random_baseline.py / generate_cosine_baseline.py /
+│   │   generate_netprox_baseline.py / generate_dual_outputs.py  # 基线生成
+│   └── evaluate_dual_channel.py / evaluate_gold_standard.py     # 基线评估
 │
-├── experimental_mechanisms.py / temporal_signature.py /
-├── transfer_learning.py / ablation_nongene_targets.py  # 实验性模块
-├── verify_gnn.py / verify_reproducibility.py /
-├── verify_reversal_hypothesis.py / pre_run_check.py    # 验证与预检
-├── check_drugai_gold_overlap.py / validate_drugai_direction.py /
-├── direction_calibration.py / diagnose_tms_formula.py /
-├── permutation_check.py / method_comparison.py /
-├── mc2_stats.py / mc6_ablation_seeds.py / mc6_supervised.py  # 诊断/统计脚本
-├── evaluation.py / evaluation_metrics.py  # 无监督评估（H-PG 网络等）
-├── requirements.txt
+├── diagnostics/                  # 验证 / 诊断 / 统计（非论文主线）
+│   ├── verify_gnn.py / verify_reproducibility.py / verify_reversal_hypothesis.py
+│   ├── pre_run_check.py / check_drugai_gold_overlap.py / validate_drugai_direction.py
+│   ├── direction_calibration.py / diagnose_tms_formula.py /
+│   │   diagnose_target_count_confound.py / ablation_nongene_targets.py
+│   └── mc2_stats.py / mc6_ablation_seeds.py / mc6_supervised.py /
+│       run_confound_check.py / run_multigold_confound_check.py
+│
+├── preprocessing/                # 数据获取与预处理脚本（本地保留，不上传）
+└── manuscript/                   # 论文排版辅助脚本（本地保留，不上传）
 ```
+
+> 数据获取 / 预处理脚本（`preprocessing/`）与论文排版脚本（`manuscript/`）**本地保留但不上传**；仓库中只放模型与实验代码。所有入口脚本均把自身目录、仓库根、`mendgcn/` 加入 `sys.path`，因此可在任意工作目录直接运行。
 
 ## 输出产物
 

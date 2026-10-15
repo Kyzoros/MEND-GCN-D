@@ -7,35 +7,27 @@
 ## 一、总体数据流
 
 ```
-┌─────────────────────────────────────────────────────────────┐
-│ data/processed/   （本地数据，不进仓库）                        │
-│  herb_ingredients_processed.csv      草药-成分                 │
-│  ingredient_targets_enhanced_recovered.csv  成分-靶基因(增强)   │
-│  disease_profiles_processed.csv      疾病差异表达谱(logFC/P)    │
-│  kegg 缓存                           基因-基因边                 │
-│  gold_standard_final_8d_supplemented.csv  8病金标准(595行)      │
-└──────────────────────────┬──────────────────────────────────┘
-                           ▼
-┌─────────────────────────────────────────────────────────────┐
-│ build_graph()  [run_fair_comparison.py]                      │
-│  异构图 H-I-G-D + 可选 KEGG G-G 边 → 对称归一化 A_sym          │
-│  节点特征 6 维（类型one-hot + 度数 + |logFC|）                  │
-└──────────────────────────┬──────────────────────────────────┘
-                           ▼
-┌─────────────────────────────────────────────────────────────┐
-│ GCN 类 / train_gcn_model()  [run_fair_comparison.py]          │
-│  2层图卷积(ReLU) → z_h, z_d (32维)                            │
-│  DistMult 可学对角权重 w；k_neg=5 负采样；纯 BCE；Adam 1e-2    │
-│  打分 S = (z_h ⊙ w) @ z_dᵀ （标准化）                          │
-└──────────────────────────┬──────────────────────────────────┘
-                           ▼
-┌─────────────────────────────────────────────────────────────┐
-│ 评估协议（对级干净评估 / FULL-labled AUROC）                    │
-│  P1 run_cv_final.py            5折 transductive → Table_cv_clean.csv │
-│  P2 run_gnn_lodo_coldstart.py  LODO 留一病   → Table_lodo.csv │
-│  P3 run_gnn_lodo_coldstart.py  冷启动草药    → Table_coldstart.csv │
-│  公平对比 run_fair_comparison.py / run_fair_final.py         │
-└─────────────────────────────────────────────────────────────┘
+data/processed/  （本地数据，不进仓库）
+    herb_ingredients_processed.csv              草药-成分
+    ingredient_targets_enhanced_recovered.csv   成分-靶基因(增强)
+    disease_profiles_processed.csv              疾病差异表达谱(logFC/P)
+    kegg 缓存                                    基因-基因边
+    gold_standard_final_8d_supplemented.csv     8病金标准(595行)
+        ↓
+mendgcn/run_fair_comparison.py — build_graph()
+    异构图 H-I-G-D + 可选 KEGG G-G 边 → 对称归一化 A_sym
+    节点特征 6 维（类型one-hot + 度数 + |logFC|）
+        ↓
+mendgcn/run_fair_comparison.py — GCN 类 / train_gcn_model()
+    2层图卷积(ReLU) → z_h, z_d (32维)
+    DistMult 可学对角权重 w；k_neg=5 负采样；纯 BCE；Adam 1e-2
+    打分 S = (z_h ⊙ w) @ z_dᵀ （标准化）
+        ↓
+评估协议（对级干净评估 / FULL-labeled AUROC）
+    P1  mendgcn/run_cv_final.py               5折 transductive → Table_cv_clean.csv
+    P2  experiments/run_gnn_lodo_coldstart.py LODO 留一病      → Table_lodo.csv
+    P3  experiments/run_gnn_lodo_coldstart.py 冷启动草药       → Table_coldstart.csv
+    公平对比  mendgcn/run_fair_comparison.py / run_fair_final.py
 ```
 
 ---
@@ -74,7 +66,7 @@ n_layers>=3      :  中间层继续图卷积
 
 - 打分矩阵：`S = (z_h ⊙ w) @ z_dᵀ`，按均值/标准差标准化；
 - `evaluate()`：FULL（负例=全库其余草药）与 labeled（仅金标有显式 label 的草药）两口径 AUROC；
-- 对级干净指标（[run_cv_final.py](run_cv_final.py) `pair_metrics`）：pair AUROC、AUPRC、MRR、Hits@10/20；bootstrap 95% CI（`summarise`）。
+- 对级干净指标（[run_cv_final.py](mendgcn/run_cv_final.py) `pair_metrics`）：pair AUROC、AUPRC、MRR、Hits@10/20；bootstrap 95% CI（`summarise`）。
 
 ---
 
@@ -99,19 +91,19 @@ n_layers>=3      :  中间层继续图卷积
 
 | 基线 | 函数 | 思想 |
 |------|------|------|
-| Fisher 富集 (D-TMS) | `score_fisher()`（run_fair_comparison.py） | 草药靶点集与疾病基因集富集显著性（`hdmap_s.pair_single_herb_all_diseases_enrichment`） |
+| Fisher 富集 (D-TMS) | `score_fisher()`（mendgcn/run_fair_comparison.py） | 草药靶点集与疾病基因集富集显著性（`hdmap_s.pair_single_herb_all_diseases_enrichment`） |
 | 网络邻近度 (Barabasi) | `score_proximity()` | KEGG 网络 BFS 距离 + 度校正随机期望 z-score |
 | 靶点数量 | `score_targetcount()` | 平凡：count(靶点)，无疾病特异性 |
-| RWR 扩散 | `score_rwr()`（run_fair_final.py） | 以病为种子行归一游走（c=0.7，100 迭代），草药稳态概率为分 |
+| RWR 扩散 | `score_rwr()`（mendgcn/run_fair_final.py） | 以病为种子行归一游走（c=0.7，100 迭代），草药稳态概率为分 |
 | MLP 无图传播 | GCN `n_layers=1` | 剥离图传播的深度对照 |
 
-### 4.2 无监督系统映射管线 [main.py](main.py)
+### 4.2 无监督系统映射管线 [main.py](baselines/main.py)
 
 ```
-加载数据 → RWR 扰动签名(perturbation_signature.py)
-        → HDmap-S TMS + 置换检验(hdmap_s.py)
-        → HDmap-M 遗传算法组合搜索(hdmap_m.py)
-        → H-PG 网络 / 共同基因评估(evaluation.py + evaluation_metrics.py)
+加载数据 → RWR 扰动签名(mendgcn/perturbation_signature.py)
+        → HDmap-S TMS + 置换检验(mendgcn/hdmap_s.py)
+        → HDmap-M 遗传算法组合搜索(mendgcn/hdmap_m.py)
+        → H-PG 网络 / 共同基因评估(mendgcn/evaluation.py + mendgcn/evaluation_metrics.py)
 ```
 
 输出：`output/results/{DISEASE}_{timestamp}/hdmap_s_scores.csv`、`herb_perturbation_signatures.csv`、`hdmap_m_results_{DISEASE}.csv`、`hpg_network_{DISEASE}.csv` 等。
@@ -122,11 +114,11 @@ n_layers>=3      :  中间层继续图卷积
 
 | 模块 | 作用 | 谁调用 |
 |------|------|--------|
-| `data_loader.py` | 加载 raw CSV（疾病谱/草药成分/成分靶标/PPI），整合增强管线输出 | `main.py` 与各协议脚本 |
-| `hdcti_adapter.py` | TCMSP SVM/RF 补充 + G–C 异构图 GCN 传播预测新靶标，合并去重 | 数据准备阶段（本地脚本） |
-| `drugai_adapter.py` | DrugAI（AttentiveFP+1D-CNN）三分类阈值预测作用方向（+1/−1/保留） | 数据准备阶段（本地脚本） |
-| `gcn_target_expansion.py` | 草药-靶标二部图 2 层 GCN、BCE、1:1 负采样——靶标扩展**对比实验** | 独立实验脚本 |
-| `kegg_network.py` | KEGG 基因互作邻接构建与归一化缓存 | `build_graph()`（G–G 边） |
+| `mendgcn/data_loader.py` | 加载 raw CSV（疾病谱/草药成分/成分靶标/PPI），整合增强管线输出 | `baselines/main.py` 与各协议脚本 |
+| `mendgcn/hdcti_adapter.py` | TCMSP SVM/RF 补充 + G–C 异构图 GCN 传播预测新靶标，合并去重 | 数据准备阶段（本地脚本） |
+| `mendgcn/drugai_adapter.py` | DrugAI（AttentiveFP+1D-CNN）三分类阈值预测作用方向（+1/−1/保留） | 数据准备阶段（本地脚本） |
+| `mendgcn/gcn_target_expansion.py` | 草药-靶标二部图 2 层 GCN、BCE、1:1 负采样——靶标扩展**对比实验** | 独立实验脚本 |
+| `mendgcn/kegg_network.py` | KEGG 基因互作邻接构建与归一化缓存 | `build_graph()`（G–G 边） |
 
 ---
 
@@ -150,19 +142,19 @@ n_layers>=3      :  中间层继续图卷积
 ## 七、模块依赖关系
 
 ```
-各 run_*.py 协议脚本
+各 run_*.py 协议脚本（mendgcn/ 与 experiments/ 下）
  ├── config.py ←── config.yaml
- ├── run_fair_comparison.py ★（GCN 类 / build_graph / train_gcn / 基线函数）
- │    ├── kegg_network.py（G–G 边）
- │    └── hdmap_s.py（Fisher 富集复用）
- ├── run_fair_final.py    （score_rwr）
- └── run_cv_final.py      （pair_metrics / summarise）
+ ├── mendgcn/run_fair_comparison.py ★（GCN 类 / build_graph / train_gcn / 基线函数）
+ │    ├── mendgcn/kegg_network.py（G–G 边）
+ │    └── mendgcn/hdmap_s.py（Fisher 富集复用）
+ ├── mendgcn/run_fair_final.py    （score_rwr）
+ └── mendgcn/run_cv_final.py      （pair_metrics / summarise）
 
-main.py（无监督基线管线）
- ├── data_loader.py ── hdcti_adapter.py / drugai_adapter.py（增强，本地数据准备）
- ├── perturbation_signature.py（RWR/热扩散签名）
- ├── hdmap_s.py → hdmap_m.py（TMS → 遗传算法）
- └── evaluation.py → evaluation_metrics.py（H–PG 网络等）
+baselines/main.py（无监督基线管线）
+ ├── mendgcn/data_loader.py ── mendgcn/hdcti_adapter.py / mendgcn/drugai_adapter.py（增强，本地数据准备）
+ ├── mendgcn/perturbation_signature.py（RWR/热扩散签名）
+ ├── mendgcn/hdmap_s.py → mendgcn/hdmap_m.py（TMS → 遗传算法）
+ └── mendgcn/evaluation.py → mendgcn/evaluation_metrics.py（H–PG 网络等）
 ```
 
 ---
