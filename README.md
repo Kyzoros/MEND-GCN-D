@@ -1,195 +1,201 @@
-# Systems-Mapping of Herbal Effects on Complex Diseases
+# GCN-D: 基于图神经网络的草药-疾病关联预测模型
+
+> 仓库名 `MEND-GCN-D`。本项目是一份**原创研究代码**：提出并训练GCN（图卷积网络）+ DistMult（可学习对角权重）解码器，在"草药—成分—靶基因—疾病"异构图上预测草药对疾病的治疗关联。**本文方法 ≠ 已有论文复现**；仓库中同时保留的无监督管线（扰动签名 / HDmap-S TMS / 遗传算法组合搜索）属于对比基线与数据基础。
+
+---
 
 ## 项目概述
 
-本代码是对论文 **"Systems-Mapping of Herbal Effects on Complex Diseases Using the Network-Perturbation Signatures"** (Chen et al., *Frontiers in Pharmacology*, 2018) 的 Python 复现实现。
+- **问题**：给定一种疾病和全库草药，预测哪些草药对该疾病具有治疗效果（二分类关联预测 / 排序问题）。
+- **核心模型（本文方法，代码中命名为 GCN-D）**：
+  1. 构建异构体 `草药(H)—成分(I)—靶基因(G)—疾病(D)`，可选加入 KEGG 基因-基因边；
+  2. 两层 GCN 对对称归一化邻接矩阵做消息传递，得到各节点嵌入（含节点类型与基因差异表达等特征）；
+  3. DistMult 解码器对每个 `(草药, 疾病)` 对打分：`s = Σ (z_h ⊙ w ⊙ z_d)`，`w` 为可学习对角权重；
+  4. 纯二元交叉熵（BCE）损失 + 按疾病负采样训练。
+- **代码位置**：模型定义在 [run_fair_comparison.py](run_fair_comparison.py) 的 `GCN` 类与 `train_gcn_model()` / `train_gcn()` 中，其余协议脚本均导入复用，全库统一。
 
-### 论文方法核心框架
+---
 
-该研究提出了一种系统级计算框架，通过草药扰动签名与疾病病理状态特征的系统映射，建立草药与复杂疾病之间的联系：
+## 方法与框架（与代码一一对应）
 
-1. **疾病病理状态谱 (Disease-Pathological State Profiles)**：从GEO数据库获取189种疾病的基因表达谱，差异分析后排序
-2. **草药扰动签名 (Herb-Perturbation Signatures)**：基于TCMSP/ChEMBL/BindingDB的化合物-靶标数据，经两阶段热扩散模型生成
-3. **HDmap-S (单草药-疾病映射)**：计算TMS (Total Matching Score) 评估草药对疾病的有效性
-4. **HDmap-M (多草药组合映射)**：使用遗传算法搜索最优草药组合
+### 1. 异构图构建 — `build_graph()`（[run_fair_comparison.py](run_fair_comparison.py)）
 
-## 项目结构
+| 项目 | 内容 |
+|------|------|
+| 节点 | 草药 H、成分 I、靶基因 G、疾病 D（4 类） |
+| 边 | H–I（草药含成分）、I–G（成分作用靶基因）、G–D（疾病差异表达基因）；可选 KEGG G–G 边（`use_kegg=True`，来自 `kegg_network.build_kegg_adjacency()`）|
+| 邻接矩阵 | 对称归一化 `A_sym = D^(-1/2) A D^(-1/2)`（加自环） |
+| 节点特征 | 6 维：4 类节点类型的 one-hot + 度数开方的缩放特征 + 基因 |logFC| 表达特征（标准化） |
+
+数据来源（`data/processed/`）：
+- `herb_ingredients_processed.csv` — 草药-成分关系
+- `ingredient_targets_enhanced_recovered.csv` — 成分-靶基因关系（可用环境变量 `SM_TGT_FILE` 覆盖，便于做清洗前后对照）
+- `disease_profiles_processed.csv` — 疾病差异表达谱（`disease_id, gene_symbol, logFC, P_value`）
+
+### 2. GCN 编码器 — `GCN` 类
 
 ```
-systems_mapping/
-├── __init__.py                  # 包初始化
-├── config.py                    # 配置参数
-├── data_loader.py               # 数据加载模块
-├── perturbation_signature.py    # 扰动签名构建 + 热扩散模型
-├── hdmap_s.py                   # HDmap-S 单草药映射
-├── hdmap_m.py                   # HDmap-M 遗传算法组合搜索
-├── evaluation.py                # 评估验证模块
-├── main.py                      # 主流程脚本
-├── prepare_data.py              # 数据准备指导
-├── requirements.txt             # 依赖
-├── README.md                    # 本文件
-├── data/
-│   ├── raw/                     # 用户放置原始数据
-│   └── processed/               # 预处理后数据
-└── output/
-    ├── results/                 # 分析结果
-    └── figures/                 # 图表
+h1 = ReLU( W1 · (A_sym @ X) )          # 第 1 层，输入 6 维 → 隐藏 64 维
+z  = Wout · (A_sym @ h1)               # 第 2 层，64 维 → 输出 32 维
 ```
 
-## 安装
+- `n_layers=1`：退化为无图传播的 MLP（结构消融对照）；`n_layers>=3`：更深版本。
+- 默认超参：`hid=64, out=32, n_layers=2`。
+
+### 3. 训练 — `train_gcn_model()` / `train_gcn()`
+
+- 解码：`pos_s = Σ (z_h ⊙ z_d ⊙ w)`，DistMult 可学权重 `w`（32 维，初始化为 1）；`decoder="dot"` 时退化为纯点积（消融）。
+- 负采样：每病每个正例按 `k_neg=5` 从该病候选草药中采样（通过 `build_exclude()` 排除该病全部已知正例，防止泄漏）。
+- 损失：`L = −mean(log σ(pos_s)) − mean(log(1−σ(neg_s)))`（纯 BCE）。
+- 优化：Adam `lr=1e-2`；epochs 冒烟 300 / 全量 3000；`torch.manual_seed` 固定随机性。
+- 打分：`S = (z_h ⊙ w) @ z_dᵀ` 后按矩阵均值/标准差标准化。
+
+### 4. 评估 — `evaluate()`
+
+- `FULL`：正例 = 金标准中该病已知治疗草药，负例 = 全库其余草药；
+- `labeled`：仅在金标准中有显式 `label∈{0,1}` 的草药上计算；
+- 指标：AUROC（每病 + 8 病平均），另含留出泛化 AUROC。
+
+---
+
+## 评估协议（三种泛化设置）
+
+| 协议 | 说明 | 脚本 | 输出表 |
+|------|------|------|--------|
+| **P1 · 5 折 transductive** | 306 个正例对划 5 折轮流留出，汇总后报 pair 级 AUROC / AUPRC / MRR / Hits@10 / Hits@20，bootstrap 95% CI | [run_cv_final.py](run_cv_final.py) | `Table_cv_clean.csv` |
+| **P2 · LODO（留一病）** | 依次留出 1 个病：训练图彻底删除该病节点及其基因连边，冻结权重在全图推理（真 inductive） | [run_gnn_lodo_coldstart.py](run_gnn_lodo_coldstart.py) `--stage lodo` | `Table_lodo.csv` (+`_per_disease`) |
+| **P3 · 冷启动草药** | 5 折各留出 1/5 草药节点及其成分连边，靠成分→基因→病传播给全新草药打分 | [run_gnn_lodo_coldstart.py](run_gnn_lodo_coldstart.py) `--stage coldstart` | `Table_coldstart.csv` (+`_per_fold`) |
+| **公平对比主表** | 留出 1/5 正例对；Fisher / 网络邻近 / 靶点数量 / GCN-D 四方法同数据同评估 | [run_fair_comparison.py](run_fair_comparison.py) | `Table_fair_comparison.csv` |
+| **定稿公平基线 + 干净留出 + 消融** | 6 方法（含 MLP 无图对照）干净对级评估、epoch 扫描、结构消融 | [run_fair_final.py](run_fair_final.py) | `Table_fair_final.csv`、`Table_holdout_clean.csv`、`Table_epoch_overfit.csv`、`Table_gnn_ablation2.csv` |
+| **8 病扩展评估** | 新 4 病 curated AUC 与独立验证合并 | [run_8disease_curated_auc.py](run_8disease_curated_auc.py)、[run_8disease_master_table.py](run_8disease_master_table.py) | `Table_8disease_curated_auc.csv`、`Table_8disease_master.csv` |
+
+## 金标准与疾病
+
+金标准文件：`data/processed/gold_standard_final_8d_supplemented.csv`（8 病共 595 行，`label∈{0,1}`）：
+
+- 老 4 病（人工金标准）：AD、PAH、RA、T2D
+- 新 4 病（TCMBank indication 提取正例）：HCC、CRC、ASTHMA、OA
+
+---
+
+## 对比基线
+
+全部在同一份数据、同一套评估代码下对比：
+
+| 基线 | 思想 | 代码 |
+|------|------|------|
+| Fisher 富集 (D-TMS) | 草药靶点集与疾病基因集的富集显著性 | `score_fisher()`（[run_fair_comparison.py](run_fair_comparison.py)） |
+| 网络邻近度 (Barabasi) | KEGG 网络上疾病基因到草药靶点的度校正 z-score | `score_proximity()`（同上） |
+| 靶点数量 | 平凡基线：只数靶点数、无疾病特异性 | `score_targetcount()`（同上） |
+| RWR 扩散 | 以疾病为种子在异构图上重启随机游走，稳态概率为分 | `score_rwr()`（[run_fair_final.py](run_fair_final.py)） |
+| MLP 无图传播 | `n_layers=1` 的 GCN-D 对照，剥离图传播贡献 | [run_fair_final.py](run_fair_final.py) |
+
+另保留完整的**无监督系统映射管线** [main.py](main.py)：RWR 草药扰动签名（`perturbation_signature.py`）→ HDmap-S TMS 得分与置换检验（`hdmap_s.py`）→ HDmap-M 遗传算法组合搜索（`hdmap_m.py`）→ H–PG 网络评估（`evaluation.py` / `evaluation_metrics.py`），作为传统方法的对照实现。
+
+---
+
+## 数据管线
+
+- **靶标扩展与方向预测**（数据增强，非主模型）：
+  - `hdcti_adapter.py` — 基于 TCMSP 支持向量机/随机森林与 GCN 图传播预测成分-蛋白新靶标；
+  - `drugai_adapter.py` — DrugAI 深度学习模型（AttentiveFP + 1D-CNN）预测成分-靶标作用方向（激活/抑制）；
+  - `gcn_target_expansion.py` — 草药-靶标二部图 GCN 靶标扩展对比实验。
+- **KEGG 网络**：`kegg_network.py` 构建基因-基因 KEGG 邻接与归一化缓存。
+- **注意**：原始数据与实验产出（`data/`、`output/`）不在本仓库内；数据获取与预处理脚本保留在本地未上传。运行主实验前需自行准备 `data/processed/` 下的数据文件（路径见 [config.py](config.py) / [config.yaml](config.yaml)）。
+
+---
+
+## 安装与快速开始
 
 ```bash
-cd systems_mapping
 pip install -r requirements.txt
 ```
 
-## 需要准备的数据
-
-**在运行代码前，您需要手动获取以下数据文件**（放入 `data/raw/` 目录）：
-
-| 文件名 | 来源 | 描述 |
-|--------|------|------|
-| `disease_profiles.csv` | GEO数据库 | 疾病差异表达基因列表 |
-| `herb_ingredients.csv` | TCMSP | 502种草药及其10,329个成分 |
-| `ingredient_targets.csv` | ChEMBL v23 + BindingDB + WES | 成分-靶标关系 |
-| `ppi_network.csv` | 整合PPI网络 | 13,460个蛋白, 141,296条互作 |
-| `herb_metadata.csv` | TCMSP (可选) | 草药元信息 |
-
-### 详细准备步骤
-
-运行 `prepare_data.py` 查看详细的数据获取指南和模板:
+核心依赖：numpy / pandas / scipy / scikit-learn / matplotlib / pyyaml / requests；深度模型需 `torch`（可选：joblib、numba、gseapy、seaborn，见 [requirements.txt](requirements.txt)）。
 
 ```bash
-python prepare_data.py
+# 公平对比主表（4 方法 × 8 病，冒烟参数）
+python run_fair_comparison.py
+
+# P1：5 折 transductive 对级评估（全量）
+python run_cv_final.py --epochs 3000
+
+# P2 / P3：留一病 与 冷启动草药（全量）
+python run_gnn_lodo_coldstart.py --stage lodo --epochs 3000
+python run_gnn_lodo_coldstart.py --stage coldstart --epochs 3000
+
+# 定稿公平基线 + 干净留出 + 消融（4 张论文表）
+python run_fair_final.py --epochs 3000 --seeds 0 1 2
+
+# 无监督系统映射管线（对照方法）
+python main.py --disease PAH
 ```
 
-### 关于数据文件的详细说明
+默认超参（所有 GCN-D 协议一致）：`lr=1e-2, hid=64, out=32, k_neg=5, n_layers=2`。
 
-**1. disease_profiles.csv**
-- 包含 `disease_id, gene_symbol, logFC, P_value` 四列
-- 每个疾病有多个差异表达基因，按logFC降序排列
-- 论文使用189个疾病、460个表达谱
+---
 
-**2. herb_ingredients.csv**
-- 包含 `herb_id, herb_name, ingredient_id, ingredient_name, content_ratio` 五列
-- 论文使用502个草药、10,329个成分
-- 若成分含量未知，`content_ratio` 设为1.0
+## 仓库结构
 
-**3. ingredient_targets.csv**
-- 包含 `ingredient_id, target_gene, action_type` 三列
-- `action_type`: +1 (激活) 或 -1 (抑制)
-- 非实验验证的靶标可以使用WES算法预测
-
-**4. ppi_network.csv**
-- 包含 `protein_A, protein_B` 两列
-- 需要13,460个蛋白、141,296条互作
-- 可以从STRING/BioGRID/InWeb等数据库组合获取
-
-## 运行方法
-
-### 步骤0: 获取疾病表达谱数据 (必须先完成!)
-
-**推荐方式 — R脚本 (更稳定):**
-```r
-# 先安装依赖
-install.packages(c("BiocManager", "data.table", "argparse"))
-BiocManager::install(c("GEOquery", "limma"))
-
-# 演示模式 (下载RA的2个数据集)
-Rscript geo_download_R.R --demo
-
-# 批量模式 (下载所有预定义疾病)
-Rscript geo_download_R.R --batch
-
-# 单个数据集
-Rscript geo_download_R.R --gse GSE55235
-
-# 自定义输出路径
-Rscript geo_download_R.R --demo --output my_disease_data.csv
+```
+├── run_fair_comparison.py       # ★ GCN 类 / train_gcn / 图构建 / 公平对比主表
+├── run_cv_final.py              # ★ P1：5 折 transductive 对级评估
+├── run_gnn_lodo_coldstart.py    # ★ P2 LODO / P3 冷启动（inductive）
+├── run_fair_final.py            # ★ 定稿公平基线 + 干净留出 + 消融（4 表）
+├── config.py / config.yaml      # 统一配置（数据路径、图/评估/增强参数）
+├── data_loader.py               # 数据加载 + HDCTI/DrugAI 增强集成
+├── kegg_network.py              # KEGG 基因网络邻接与缓存
+│
+├── run_gnn_final.py             # GCN 定稿 epoch 扫描 / 多种子
+├── run_gnn_ablation.py          # GNN 结构消融
+├── run_ablation.py / run_ablation_enrichment.py   # 组件与富集消融
+├── run_baseline_comparison.py / run_baseline_holdout.py  # 基线与留出对比
+├── run_8disease_curated_auc.py / run_8disease_master_table.py /
+├── run_8disease_top50.py / run_8disease_top50_summary.py  # 8 病扩展评估
+├── run_D5_correct_compare.py / run_D6_pubmed_validation.py /
+├── run_D7_ablation_permutation.py / run_D8_final_comparison.py  # 论文 D 组实验
+├── run_P0_independent_validation.py / run_P0a_target_tightening.py /
+├── run_P0b_clean_gold.py / run_positive_control.py  # P0 独立验证与阳性对照
+├── run_gcn_case_predict.py / run_gcn_d_scores.py / interpret_gcn_d.py  # GCN-D 案例与解释
+├── run_herb_external_validation.py / run_tms_independent_validation.py  # 外部验证
+├── run_coldstart.py / run_k_stratified_eval.py / run_conf_threshold_lodo.py  # 冷启动/分层/阈值
+├── run_multidisease_date.py / run_multigold_confound_check.py /
+├── run_confound_check.py / diagnose_target_count_confound.py  # 混杂与日期检验
+├── run_pah_analysis.py / run_tms_size_correction.py  # PAH 分析 / TMS 尺寸校正
+│
+├── main.py                      # 无监督管线编排（扰动签名→HDmap-S→HDmap-M→评估）
+├── perturbation_signature.py    # RWR / 热扩散扰动签名（基线组件）
+├── hdmap_s.py                   # TMS 得分 + 置换检验（基线）
+├── hdmap_m.py                   # 遗传算法组合搜索（基线）
+├── tms_network_proximity.py     # 网络邻近度（基线）
+├── generate_random_baseline.py / generate_cosine_baseline.py /
+├── generate_netprox_baseline.py / generate_dual_outputs.py  # 基线生成
+├── evaluate_dual_channel.py / evaluate_gold_standard.py     # 基线评估
+│
+├── hdcti_adapter.py             # TCMSP + GCN 靶标扩展适配器
+├── drugai_adapter.py            # DrugAI 靶标方向预测适配器
+├── gcn_target_expansion.py      # 二部图 GCN 靶标扩展对比实验
+├── compare_diffusion_rwr_vs_thermal.py / compare_ppi_vs_kegg.py /
+├── compare_target_expansion.py  # 组件对比实验
+│
+├── experimental_mechanisms.py / temporal_signature.py /
+├── transfer_learning.py / ablation_nongene_targets.py  # 实验性模块
+├── verify_gnn.py / verify_reproducibility.py /
+├── verify_reversal_hypothesis.py / pre_run_check.py    # 验证与预检
+├── check_drugai_gold_overlap.py / validate_drugai_direction.py /
+├── direction_calibration.py / diagnose_tms_formula.py /
+├── permutation_check.py / method_comparison.py /
+├── mc2_stats.py / mc6_ablation_seeds.py / mc6_supervised.py  # 诊断/统计脚本
+├── evaluation.py / evaluation_metrics.py  # 无监督评估（H-PG 网络等）
+├── requirements.txt
 ```
 
-**Python方式 (备选):**
-```bash
-python geo_downloader.py --search "rheumatoid arthritis"
-python geo_downloader.py --gse-list GSE55235,GSE77298
-python geo_downloader.py --demo   # 演示模式
-```
+## 输出产物
 
-> **注意**: R版本的 `geo_download_R.R` 使用 limma 标准流程，结果与论文一致度更高，强烈推荐使用。
+各协议脚本统一写到 `output/results/paper_deliverables/`（路径见 `config.py`），包括：
 
-### 完整工作流
-
-```bash
-python main.py
-```
-
-### 分步运行
-
-```python
-# 在Python中导入
-from data_loader import *
-from perturbation_signature import *
-from hdmap_s import HDmapS
-from hdmap_m import HDmapM
-from evaluation import *
-
-# 1. 加载数据
-disease_profiles = load_disease_profiles()
-herb_ingredients = load_herb_ingredients()
-ingredient_targets = load_ingredient_targets()
-ppi_network = load_ppi_network()
-
-# 2. 构建扰动签名
-adj, gene2idx = build_ppi_adjacency(ppi_network)
-builder = PerturbationSignatureBuilder(adj, gene2idx)
-herb_signatures, builder = batch_build_herb_signatures(
-    herb_ingredients, ingredient_targets, ppi_network, builder
-)
-
-# 3. HDmap-S 单草药映射
-hdmap_s = HDmapS(herb_signatures, builder)
-tms = hdmap_s.compute_tms("Herb_1", disease_genes_list)
-
-# 4. HDmap-M 遗传算法搜索
-hdmap_m = HDmapM(hdmap_s, list(herb_signatures.keys()), herb_signatures, builder)
-result = hdmap_m.optimize(disease_genes_list)
-```
-
-## 关键模型参数
-
-| 参数 | 论文值 | 说明 |
-|------|--------|------|
-| TOP_BOTTOM_K | 250 | 最优签名基因数 |
-| GA_POP_SIZE | 500 | 遗传算法初始种群 |
-| PERMUTATION_N | 10,000 | 置换检验次数 |
-| GA_MAX_GENERATIONS | 200 | 最大遗传代数 |
-
-## 输出结果
-
-运行后将在 `output/` 目录生成:
-
-- `results/herb_perturbation_signatures.csv` - 所有草药的扰动签名矩阵
-- `results/hdmap_s_scores.csv` - HDmap-S得分矩阵 (草药×疾病)
-- `results/hdmap_s_permutation.csv` - 置换检验P值
-- `results/hdmap_m_results.csv` - 最优草药组合
-- `results/hpg_network_RA.csv` - RA案例的H-PG网络 (可导入Cytoscape)
-
-## 类风湿关节炎(RA)案例验证
-
-论文以RA为例预测了一个新复方：
-- Boschniakia Rossica (BR, 草苁蓉)
-- Rhizoma Cimicifugae (RC, 升麻)
-- Arisaematis Rhizoma (AR, 天南星)
-
-代码将在 `step5` 中自动分析此复方的共同扰动基因和功能富集。
-
-## 依赖
-
-- numpy, pandas, scipy - 科学计算
-- scikit-learn - 机器学习辅助
-- matplotlib, seaborn - 可视化
-- gseapy (可选) - 富集分析
-
-## 引用
-
-Chen X, Zheng C, Wang C, et al. Systems-Mapping of Herbal Effects on Complex Diseases Using the Network-Perturbation Signatures. *Frontiers in Pharmacology*, 2018, 9:1174.
+- `Table_fair_comparison.csv` / `Table_fair_final.csv` — 公平对比主表
+- `Table_cv_clean.csv` — P1 交叉验证对级指标（含 bootstrap 95% CI）
+- `Table_lodo.csv` / `Table_coldstart.csv` — P2 / P3 inductive 结果
+- `Table_holdout_clean.csv` / `Table_epoch_overfit.csv` / `Table_gnn_ablation2.csv` — 干净留出、过拟合扫描、结构消融
+- `Table_8disease_curated_auc.csv` / `Table_8disease_master.csv` — 8 病扩展评估
