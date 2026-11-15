@@ -277,7 +277,7 @@ def main():
                 hm2 = dict(hm)
                 hm2.update({"method": "GCN_DistMult",
                             "note": f"supervised, {len(te)} held-out pairs, "
-                                    f"{args.epochs}ep, single seed"})
+                                    f"{args.epochs}ep, {len(args.seeds)} seed(s)"})
                 hold_rows.append(hm2)
 
         # 单种子汇总 (均值写回 CSV, 供论文引用)
