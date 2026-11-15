@@ -1,12 +1,27 @@
 # MEND-GCN-D
 
-A graph neural network for predicting therapeutic associations between herbs and diseases.
+Reference implementation of **MEND** (*Multi-hop Evidence Network for herb–Disease association*),
+a graph neural network for predicting therapeutic associations between herbs and diseases.
 
 MEND-GCN-D scores every herb in a library against a given disease. It encodes herbs, their
 chemical ingredients, target genes and diseases in a single heterogeneous graph, learns node
 embeddings with a graph convolutional network (GCN), and scores herb–disease pairs with a
 DistMult-style bilinear decoder. A classical unsupervised system-mapping pipeline is included
 as a comparison baseline.
+
+This repository accompanies the manuscript *MEND: A Leakage-Controlled Benchmark and Multi-Hop
+Graph Convolutional Model for Herb–Disease Therapeutic Association Prediction*, in which GCN-D
+is the reference instantiation and the remaining components (fair baselines, ablations,
+protocols) form the benchmark.
+
+---
+
+## Data scale
+
+The curated gold standard shipped in the manuscript has 8 diseases, **306 positive**
+herb–disease pairs and **289 explicit negatives** (595 labels in total, 300 labelled herbs).
+The evaluation candidate pool is the full 499-herb library; unlabelled herbs are always scored
+as negatives.
 
 ---
 
@@ -59,6 +74,19 @@ and `labeled` (only herbs that carry an explicit `label` in the gold standard).
 | **8-disease extension** | curated AUC on the four indication-derived diseases merged with independent validation | [experiments/run_8disease_curated_auc.py](experiments/run_8disease_curated_auc.py), [experiments/run_8disease_master_table.py](experiments/run_8disease_master_table.py) | `Table_8disease_curated_auc.csv`, `Table_8disease_master.csv` |
 
 Default hyper-parameters for every GCN-D protocol: `lr = 1e-2, hid = 64, out = 32, k_neg = 5, n_layers = 2`.
+
+### Reproducibility notes
+
+- **GPU training is not bit-deterministic.** The same code and the same seed, run in different
+  batches, differ by about 0.01 AUROC (sparse reductions and atomic adds on GPU). That is the
+  same order as some ablation effects, so compare methods within one batch and treat a single
+  run's last digits as indicative rather than exact.
+- **The fold split is fixed** (`FOLD_SEED = 12345` in [mendgcn/run_cv_final.py](mendgcn/run_cv_final.py)),
+  so every method and every seed is scored on the same five folds.
+- **Seeds.** The manuscript's headline 5-fold table is a single run at seed 10. The code default
+  is `SEED = 42` in `run_cv_final.py` and `--seed` (default 42) in
+  [mendgcn/run_fair_comparison.py](mendgcn/run_fair_comparison.py); pass the desired value to
+  reproduce a specific run.
 
 ---
 
