@@ -1,7 +1,7 @@
 """
 DrugAI适配器 - 替代PreAM模型进行激活/抑制方向预测
 =====================================================
-将DrugAI深度学习模型集成到systems_mapping管道中，用于：
+将DrugAI深度学习模型集成到MEND-GCN-D管道中，用于：
 1. 预测成分对靶标蛋白的激活(+1)/抑制(-1)作用方向
 2. 替代原始PreAM模型的action_type预测
 3. 更新ingredient_targets中的action_type列

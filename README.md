@@ -83,10 +83,9 @@ Default hyper-parameters for every GCN-D protocol: `lr = 1e-2, hid = 64, out = 3
   run's last digits as indicative rather than exact.
 - **The fold split is fixed** (`FOLD_SEED = 12345` in [mendgcn/run_cv_final.py](mendgcn/run_cv_final.py)),
   so every method and every seed is scored on the same five folds.
-- **Seeds.** The manuscript's headline 5-fold table is a single run at seed 10. The code default
-  is `SEED = 42` in `run_cv_final.py` and `--seed` (default 42) in
-  [mendgcn/run_fair_comparison.py](mendgcn/run_fair_comparison.py); pass the desired value to
-  reproduce a specific run.
+- **Seeds.** The manuscript's headline 5-fold table is a single run at seed 10, and
+  `run_cv_final.py` defaults to `SEED = 10` accordingly. `run_fair_comparison.py` exposes
+  `--seed` (default 42); pass the desired value to reproduce a specific run.
 
 ---
 

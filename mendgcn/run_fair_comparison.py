@@ -299,7 +299,7 @@ class GCN(nn.Module):
 
 def train_gcn_model(A, X, off_h, off_d, nH, nD, train_pairs, n_herb_total,
                     epochs=300, lr=1e-2, hid=64, out=32, k_neg=5, n_layers=2,
-                    seed=42, exclude_pos=None, decoder="distmult"):
+                    seed=42, exclude_pos=None, decoder="distmult", clip=None):
     """训练 GCN+DistMult, 返回 (model, w, last_loss)。
 
     与 train_gcn 的区别: 只返回模型与可学 DistMult 权重 w, 不在训练图上算 S。
@@ -369,6 +369,9 @@ def train_gcn_model(A, X, off_h, off_d, nH, nD, train_pairs, n_herb_total,
         loss = -torch.log(torch.sigmoid(pos_s)).mean() - torch.log(1 - torch.sigmoid(neg_s)).mean()
         opt.zero_grad()
         loss.backward()
+        if clip is not None:
+            torch.nn.utils.clip_grad_norm_(
+                list(model.parameters()) + ([w] if isinstance(w, nn.Parameter) else []), clip)
         opt.step()
         if ep == epochs - 1:
             last_loss = loss.item()
@@ -385,7 +388,7 @@ def train_gcn_model(A, X, off_h, off_d, nH, nD, train_pairs, n_herb_total,
 
 def train_gcn(A, X, off_h, off_d, nH, nD, train_pairs, n_herb_total,
               epochs=300, lr=1e-2, hid=64, out=32, k_neg=5, n_layers=2, seed=42,
-              exclude_pos=None, decoder="distmult"):
+              exclude_pos=None, decoder="distmult", clip=None):
     """训练 + 在训练图上推理, 返回 (S, last_loss), 与原 train_gcn 行为完全一致。
 
     若需 inductive 推理 (在含未见节点的图上打分), 请直接调用 train_gcn_model 取
@@ -393,7 +396,7 @@ def train_gcn(A, X, off_h, off_d, nH, nD, train_pairs, n_herb_total,
     model, w, last_loss = train_gcn_model(
         A, X, off_h, off_d, nH, nD, train_pairs, n_herb_total,
         epochs=epochs, lr=lr, hid=hid, out=out, k_neg=k_neg, n_layers=n_layers,
-        seed=seed, exclude_pos=exclude_pos, decoder=decoder)
+        seed=seed, exclude_pos=exclude_pos, decoder=decoder, clip=clip)
     with torch.no_grad():
         Z = model(A, X)
         zh = Z[off_h:off_h + nH]

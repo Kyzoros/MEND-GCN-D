@@ -31,7 +31,7 @@
 用法:
     python run_fair_final.py                    # 全量 (约 90 分钟)
     python run_fair_final.py --stage baselines  # 只跑无监督基线 (快)
-    python run_fair_final.py --epochs 3000 --seeds 0 1 2
+    python run_fair_final.py --epochs 3000 --seeds 42
 """
 import argparse
 import os
@@ -174,7 +174,7 @@ def main():
     ap.add_argument("--stage", default="all",
                     choices=["all", "baselines", "gcn", "overfit", "ablation"])
     ap.add_argument("--epochs", type=int, default=3000)
-    ap.add_argument("--seeds", type=int, nargs="+", default=[0, 1, 2])
+    ap.add_argument("--seeds", type=int, nargs="+", default=[42])
     ap.add_argument("--overfit-epochs", type=int, default=6000)
     ap.add_argument("--abl-epochs", type=int, default=1200)
     args = ap.parse_args()
@@ -277,10 +277,10 @@ def main():
                 hm2 = dict(hm)
                 hm2.update({"method": "GCN_DistMult",
                             "note": f"supervised, {len(te)} held-out pairs, "
-                                    f"{args.epochs}ep, mean over seeds"})
+                                    f"{args.epochs}ep, single seed"})
                 hold_rows.append(hm2)
 
-        # 多种子汇总 (均值写回 CSV, 供论文引用)
+        # 单种子汇总 (均值写回 CSV, 供论文引用)
         all_d = sorted(set().union(*[set(p.keys()) for p in per_seed.values()]))
         mean_row = []
         for d in all_d:
@@ -288,8 +288,8 @@ def main():
             vals = [v for v in vals if not np.isnan(v)]
             mean_row.append(np.mean(vals))
         print("-" * 78)
-        print(f"  FULL(3seed)     = {np.mean(gcn_full):.4f} ± {np.std(gcn_full):.4f}")
-        print(f"  干净留出(3seed) = {np.mean(gcn_hold):.4f} ± {np.std(gcn_hold):.4f}")
+        print(f"  FULL(1seed)     = {np.mean(gcn_full):.4f} ± {np.std(gcn_full):.4f}")
+        print(f"  干净留出(1seed) = {np.mean(gcn_hold):.4f} ± {np.std(gcn_hold):.4f}")
         print(f"  每病均值         = {np.mean(mean_row):.4f}")
         print("=" * 78)
         with open(os.path.join(OUT_DIR, "Table_gnn_final_clean.txt"), "w",

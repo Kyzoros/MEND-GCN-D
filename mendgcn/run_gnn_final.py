@@ -5,18 +5,18 @@ GCN 定稿实验 (2026-09-04)
 ==========================
 解决两个问题:
   1. 消融发现 epochs=600 明显优于 300 -> 做 epoch 扫描找平台
-  2. 单 seed 存在 ~0.008 的运行间方差 -> 多种子重复, 报 mean ± std
+  2. 本脚本默认为单一种子 (seed = 42) 的 5 折结果, 不做多种子重复
 
 流程:
   Stage 1  Epoch 扫描: epochs ∈ {300, 600, 900, 1200}, seed=42, 选留出最优
-  Stage 2  多种子: 最优 epochs × seeds ∈ {0,1,2,3,4}, 报 mean ± std
+  Stage 2  单种子: 最优 epochs × seed = 42, 报 5 折结果
 
 确定性: torch.set_num_threads(1) 降低稀疏矩阵多线程归约带来的 FP 非确定性。
 
 输出: output/results/paper_deliverables/Table_gnn_final.csv
 用法:
     python run_gnn_final.py
-    python run_gnn_final.py --epochs-list 300 600 900 --seeds 0 1 2 3 4
+    python run_gnn_final.py --epochs-list 300 600 900 --seeds 42
 """
 import argparse
 import os
@@ -94,7 +94,7 @@ def metrics(S, herbs, disease_ids, gold, test_pairs):
 def main():
     ap = argparse.ArgumentParser()
     ap.add_argument("--epochs-list", type=int, nargs="+", default=[300, 600, 900, 1200])
-    ap.add_argument("--seeds", type=int, nargs="+", default=[0, 1, 2, 3, 4])
+    ap.add_argument("--seeds", type=int, nargs="+", default=[42])
     ap.add_argument("--skip-sweep", action="store_true")
     ap.add_argument("--threads", type=int, default=0,
                     help="torch 线程数; 0=不限制(快). 设为 1 可降低稀疏 matmul "
@@ -105,7 +105,7 @@ def main():
         torch.set_num_threads(args.threads)
         print(f"[确定性] torch 线程数 = {args.threads}")
     else:
-        print(f"[速度优先] torch 线程数 = 不限制; 运行间方差由多种子平均吸收")
+        print(f"[速度优先] torch 线程数 = 不限制; 单种子运行")
 
     os.makedirs(OUT_DIR, exist_ok=True)
     gold = pd.read_csv(GOLD_PATH)
@@ -144,8 +144,8 @@ def main():
     else:
         best_ep = args.epochs_list[0]
 
-    # ---- Stage 2: 多种子 ----
-    print(f"\n--- Stage 2: 多种子 (epochs={best_ep}, seeds={args.seeds}) ---")
+    # ---- Stage 2: 单种子 ----
+    print(f"\n--- Stage 2: 单种子 (epochs={best_ep}, seeds={args.seeds}) ---")
     print(f"{'seed':>6}{'FULL':>10}{'labeled':>10}{'留出':>10}{'loss':>10}")
     print("-" * 78)
     fs, ls, hs, seed_rows = [], [], [], []

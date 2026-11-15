@@ -53,6 +53,7 @@ OUT_DIR = os.path.join(cfg.RESULTS_DIR, "paper_deliverables")
 BEST = dict(lr=1e-2, hid=64, out=32, k_neg=5, n_layers=2)
 N_FOLDS = 5
 FOLD_SEED = 12345
+SEED = 10          # 与论文主表一致（表 4 为 seed=10 的单次 5 折运行）
 
 
 def make_folds(herbs, disease_ids, gold, n_folds=N_FOLDS, seed=FOLD_SEED):
@@ -167,7 +168,7 @@ def main():
             test = folds[k]
             train = [p for j, f in enumerate(folds) if j != k for p in f]
             S, loss = train_gcn(A, X, off_h, off_d, nH, nD, train, nH,
-                                epochs=args.epochs, seed=42,
+                                epochs=args.epochs, seed=SEED,
                                 exclude_pos=EXCL, **c)
             dfk, auprc_k = pair_metrics(S, herbs, disease_ids, gold, test)
             dfk["fold"] = k

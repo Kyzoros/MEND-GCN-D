@@ -1,7 +1,7 @@
 """
 HDCTI适配器 - 替代WES算法进行靶标预测
 ===========================================
-将HDCTI异构图模型集成到systems_mapping管道中，用于：
+将HDCTI异构图模型集成到MEND-GCN-D管道中，用于：
 1. 预测草药成分的潜在靶标蛋白
 2. 扩展ingredient_targets数据
 3. 替代原始WES算法
@@ -45,7 +45,7 @@ class HDCTIAdapter:
     HDCTI适配器
     
     功能:
-    1. 从systems_mapping数据构建HDCTI所需的异构图
+    1. 从MEND-GCN-D数据构建HDCTI所需的异构图
     2. 训练HDCTI模型（或加载预训练模型）
     3. 预测新的成分-蛋白质关联
     4. 将预测结果合并到现有靶标数据中
